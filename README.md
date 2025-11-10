@@ -1,22 +1,30 @@
 # RTSP Timelapse
 
-Connects to multiple RTSP camera streams and captures snapshots for creating timelapses. Each camera saves images to its own folder, organized by camera name.
+Connects to multiple RTSP camera streams, captures snapshots, and creates timelapse videos. Each camera saves its images in a dedicated folder organized by camera name.
 
 ## Features
-- Support for multiple IP cameras with individual credentials
-- Each camera saves to a separate folder (`input/{camera_name}/`)
-- Timestamped image captures
-- Designed to run via cron for scheduled captures
-- Lightweight - no external Python dependencies required
+
+- 📸 Capture single frames from multiple IP cameras via RTSP  
+- 🎞️ Automatically create timelapse videos from captured images  
+- 🗂️ Organized folder structure per camera (`input/{camera_name}/`)  
+- 🕒 Timestamped image filenames  
+- ⚙️ Designed for scheduled runs via cron  
+- 💡 Lightweight — no external Python dependencies required (uses `ffmpeg`)
+
+---
 
 ## Hardware Requirements
-- A Linux machine (Raspberry Pi, Ubuntu server, etc.)
-- One or more IP cameras that support RTSP streams
+
+- A Linux-based system (e.g., Raspberry Pi, Ubuntu server, etc.)  
+- One or more IP cameras supporting RTSP streaming  
+- [ffmpeg](https://ffmpeg.org/) installed on your system  
+
+---
 
 ## Installation
 
 ### 1. Install ffmpeg
-You need [ffmpeg](https://ffmpeg.org/) installed on your system:
+
 ```bash
 # Ubuntu/Debian
 sudo apt update
@@ -26,14 +34,17 @@ sudo apt install ffmpeg
 brew install ffmpeg
 ```
 
-### 2. Clone or download this project
+### 2. Clone this project
+
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/m4ary/rtsp-capture-timelapse
 cd rtsp-timelapse
 ```
 
 ### 3. Configure your cameras
-Edit `config.py` and add your camera details:
+
+Edit `config.py` and define your cameras:
+
 ```python
 cameras = [
     {
@@ -53,88 +64,108 @@ cameras = [
 ]
 ```
 
-**Note:** The `rtsp_path` varies by camera manufacturer. Common paths include:
-- `/stream1` or `/stream2`
+**Note:** The RTSP path varies by camera manufacturer.  
+Common examples:
+- `/stream1`, `/stream2`
 - `/Streaming/Channels/101`
 - `/cam/realmonitor?channel=1&subtype=0`
 
-Check your camera's documentation for the correct RTSP path.
+Check your camera’s documentation for the correct RTSP URL path.
+
+---
 
 ## Usage
 
-### Manual capture
-Run the script manually to capture images from all cameras:
+### 1. Capture frames
+
+Capture snapshots from all configured cameras:
+
 ```bash
-python3 main.py
+python3 main.py capture
 ```
 
-Images will be saved to:
-- `input/backyard/YYYYMMDD-HHMMSS.png`
-- `input/sideyard/YYYYMMDD-HHMMSS.png`
+Each camera’s images are saved to:
 
-### Automated capture with cron
-To capture images automatically at scheduled times, set up a cron job.
+```
+input/{camera_name}/YYYYMMDD-HHMMSS.png
+```
 
-1. Open crontab editor:
+---
+
+### 2. Create timelapse videos
+
+Create a timelapse video from saved images for a specific camera:
+
+```bash
+python3 main.py timelapse --camera backyard
+```
+
+To specify a custom frame rate (e.g., 30 fps):
+
+```bash
+python3 main.py timelapse --camera backyard --framerate 30
+```
+
+Output videos are saved to:
+
+```
+output/{camera_name}_timelapse_{timestamp}.mp4
+```
+
+Example:
+```
+output/backyard_timelapse_20251111-090000.mp4
+```
+
+---
+
+### 3. Automate with cron
+
+You can schedule regular captures using cron.
+
+Edit your crontab:
+
 ```bash
 crontab -e
 ```
 
-2. Add entries for your desired schedule (example: 8:00 AM and 4:30 PM daily):
+Add entries like:
+
 ```bash
 # Capture at 8:00 AM
-0 8 * * * cd /path/to/rtsp-timelapse && /usr/bin/python3 main.py >> /tmp/rtsp-timelapse.log 2>&1
+0 8 * * * cd /path/to/rtsp-timelapse && /usr/bin/python3 main.py capture >> /tmp/rtsp-timelapse.log 2>&1
 
 # Capture at 4:30 PM
-30 16 * * * cd /path/to/rtsp-timelapse && /usr/bin/python3 main.py >> /tmp/rtsp-timelapse.log 2>&1
+30 16 * * * cd /path/to/rtsp-timelapse && /usr/bin/python3 main.py capture >> /tmp/rtsp-timelapse.log 2>&1
 ```
 
-3. Replace `/path/to/rtsp-timelapse` with your actual project path
+Replace `/path/to/rtsp-timelapse` with your actual project path.
 
-4. Save and exit
+---
 
-### View logs
-Check the log file to troubleshoot issues:
+### 4. View logs
+
 ```bash
 tail -f /tmp/rtsp-timelapse.log
 ```
 
-## Creating Timelapses
-
-This script focuses on capturing images. To create timelapse videos from the captured images, you can use ffmpeg:
-
-```bash
-# Create timelapse from a camera's images
-cd input/backyard
-ffmpeg -framerate 24 -pattern_type glob -i '*.png' -c:v libx264 -pix_fmt yuv420p output.mp4
-```
-
-Timelapse creation features will be added in future updates.
+---
 
 ## Project Structure
+
 ```
 rtsp-timelapse/
 ├── config.py           # Camera configuration
-├── main.py            # Main capture script
-├── input/             # Captured images (organized by camera)
+├── main.py             # Main capture + timelapse script
+├── input/              # Captured images (per camera)
 │   ├── backyard/
 │   └── sideyard/
-├── output/            # For future timelapse videos
+├── output/             # Generated timelapse videos
 └── README.md
 ```
 
-## Troubleshooting
-
-**Images not capturing:**
-- Verify camera IP addresses are correct
-- Test RTSP URL manually: `ffplay rtsp://username:password@ip_address/path`
-- Check camera credentials
-- Ensure cameras are on the same network
-
-**Cron job not running:**
-- Check cron logs: `grep CRON /var/log/syslog`
-- Verify script path is absolute in crontab
-- Check file permissions: `chmod +x main.py`
-
+--
 ## License
-MIT
+
+MIT License  
+Copyright © 2025
