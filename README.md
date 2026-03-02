@@ -4,20 +4,22 @@ Connects to multiple RTSP camera streams, captures snapshots, and creates timela
 
 ## Features
 
-- 📸 Capture single frames from multiple IP cameras via RTSP  
-- 🎞️ Automatically create timelapse videos from captured images  
-- 🗂️ Organized folder structure per camera (`input/{camera_name}/`)  
-- 🕒 Timestamped image filenames  
-- ⚙️ Designed for scheduled runs via cron  
+- 📸 Capture single frames from multiple IP cameras via RTSP
+- 🎞️ Automatically create timelapse videos from captured images
+- 🗂️ Organized folder structure per camera (`input/{camera_name}/`)
+- 🕒 Timestamped log output and image filenames
+- ⏭️ Skips empty/corrupt frames when building timelapse
+- 🔔 Optional Telegram notifications for captures, timelapse completion, and errors
+- ⚙️ Designed for scheduled runs via cron
 - 💡 Lightweight — no external Python dependencies required (uses `ffmpeg`)
 
 ---
 
 ## Hardware Requirements
 
-- A Linux-based system (e.g., Raspberry Pi, Ubuntu server, etc.)  
-- One or more IP cameras supporting RTSP streaming  
-- [ffmpeg](https://ffmpeg.org/) installed on your system  
+- A Linux-based system (e.g., Raspberry Pi, Ubuntu server, etc.)
+- One or more IP cameras supporting RTSP streaming
+- [ffmpeg](https://ffmpeg.org/) installed on your system
 
 ---
 
@@ -41,11 +43,21 @@ git clone https://github.com/m4ary/rtsp-capture-timelapse
 cd rtsp-timelapse
 ```
 
-### 3. Configure your cameras
+### 3. Configure your cameras and notifications
 
-Edit `config.py` and define your cameras:
+Edit `config.py`:
 
 ```python
+# Telegram notifications
+telegram_enabled = False  # master switch — set to True to enable
+
+telegram_bot_token = "your_bot_token"
+telegram_chat_id = "your_chat_id"
+
+telegram_notify_on_capture = False  # notify on each frame capture
+telegram_notify_on_timelapse = True # notify when a timelapse is created
+
+# Cameras
 cameras = [
     {
         "name": "backyard",
@@ -64,13 +76,33 @@ cameras = [
 ]
 ```
 
-**Note:** The RTSP path varies by camera manufacturer.  
+**Note:** The RTSP path varies by camera manufacturer.
 Common examples:
 - `/stream1`, `/stream2`
 - `/Streaming/Channels/101`
 - `/cam/realmonitor?channel=1&subtype=0`
 
-Check your camera’s documentation for the correct RTSP URL path.
+Check your camera's documentation for the correct RTSP URL path.
+
+---
+
+## Telegram Notifications
+
+To receive Telegram alerts:
+
+1. Create a bot via [@BotFather](https://t.me/BotFather) and copy the token
+2. Get your chat ID (e.g. via [@userinfobot](https://t.me/userinfobot))
+3. Set them in `config.py` and set `telegram_enabled = True`
+
+| Config key | Default | Description |
+|---|---|---|
+| `telegram_enabled` | `False` | Master switch for all notifications |
+| `telegram_bot_token` | `None` | Bot token from BotFather |
+| `telegram_chat_id` | `None` | Your Telegram chat/user ID |
+| `telegram_notify_on_capture` | `False` | Notify on each successful frame capture |
+| `telegram_notify_on_timelapse` | `True` | Notify when a timelapse video is created |
+
+Errors (capture failure, ffmpeg error, missing camera) always trigger a notification when `telegram_enabled = True`, regardless of the per-event flags.
 
 ---
 
@@ -84,7 +116,7 @@ Capture snapshots from all configured cameras:
 python3 main.py capture
 ```
 
-Each camera’s images are saved to:
+Each camera's images are saved to:
 
 ```
 input/{camera_name}/YYYYMMDD-HHMMSS.png
@@ -117,11 +149,15 @@ Example:
 output/backyard_timelapse_20251111-090000.mp4
 ```
 
+Empty or corrupt image files (e.g. from a camera that was offline) are automatically skipped. The log will report how many were skipped:
+
+```
+[2026-01-26 07:00:01] Found 118 images for camera 'backyard' (8 empty files skipped)
+```
+
 ---
 
 ### 3. Automate with cron
-
-You can schedule regular captures using cron.
 
 Edit your crontab:
 
@@ -132,11 +168,11 @@ crontab -e
 Add entries like:
 
 ```bash
-# Capture at 8:00 AM
-0 8 * * * cd /path/to/rtsp-timelapse && /usr/bin/python3 main.py capture >> /tmp/rtsp-timelapse.log 2>&1
+# Capture at 7:00 AM every day
+0 7 * * * cd /path/to/rtsp-timelapse && /usr/bin/python3 main.py capture >> /tmp/rtsp-timelapse.log 2>&1
 
-# Capture at 4:30 PM
-30 16 * * * cd /path/to/rtsp-timelapse && /usr/bin/python3 main.py capture >> /tmp/rtsp-timelapse.log 2>&1
+# Create timelapse for backyard every Sunday at midnight
+0 0 * * 0 cd /path/to/rtsp-timelapse && /usr/bin/python3 main.py timelapse --camera backyard >> /tmp/rtsp-timelapse.log 2>&1
 ```
 
 Replace `/path/to/rtsp-timelapse` with your actual project path.
@@ -144,6 +180,14 @@ Replace `/path/to/rtsp-timelapse` with your actual project path.
 ---
 
 ### 4. View logs
+
+All output is timestamped:
+
+```
+[2026-03-01 07:00:01] Taking pictures from all cameras...
+[2026-03-01 07:00:02] Capturing frame from backyard (192.168.4.10)
+[2026-03-01 07:00:03] Successfully captured frame to input/backyard/20260301-070003.png
+```
 
 ```bash
 tail -f /tmp/rtsp-timelapse.log
@@ -155,7 +199,7 @@ tail -f /tmp/rtsp-timelapse.log
 
 ```
 rtsp-timelapse/
-├── config.py           # Camera configuration
+├── config.py           # Camera and notification configuration
 ├── main.py             # Main capture + timelapse script
 ├── input/              # Captured images (per camera)
 │   ├── backyard/
@@ -164,8 +208,9 @@ rtsp-timelapse/
 └── README.md
 ```
 
---
+---
+
 ## License
 
-MIT License  
+MIT License
 Copyright © 2025

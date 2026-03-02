@@ -2,11 +2,46 @@ import config
 import os
 import subprocess
 import argparse
+import tempfile
+import urllib.request
+import urllib.parse
 from datetime import datetime
 
 
 base_images_directory = "input"
 output_directory = "output"
+
+
+def log(msg):
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
+
+
+def _telegram_send(msg):
+    if not getattr(config, "telegram_enabled", False):
+        return
+    token = getattr(config, "telegram_bot_token", None)
+    chat_id = getattr(config, "telegram_chat_id", None)
+    if not token or not chat_id:
+        return
+    try:
+        params = urllib.parse.urlencode({"chat_id": chat_id, "text": f"[rtsp-timelapse] {msg}"})
+        urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage?{params}", timeout=10)
+    except Exception as e:
+        log(f"Failed to send Telegram notification: {e}")
+
+
+def notify_error(msg):
+    _telegram_send(msg)
+
+
+def notify_capture(msg):
+    if getattr(config, "telegram_notify_on_capture", False):
+        _telegram_send(msg)
+
+
+def notify_timelapse(msg):
+    if getattr(config, "telegram_notify_on_timelapse", False):
+        _telegram_send(msg)
 
 
 def capture_camera_frame(camera):
@@ -27,8 +62,8 @@ def capture_camera_frame(camera):
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
     output_file = f"{camera_dir}/{timestamp}.png"
     
-    print(f"Capturing frame from {camera_name} ({camera['ip_address']})")
-    
+    log(f"Capturing frame from {camera_name} ({camera['ip_address']})")
+
     # Use ffmpeg to connect to the RTSP stream and save 1 frame
     try:
         subprocess.run(
@@ -44,12 +79,15 @@ def capture_camera_frame(camera):
             capture_output=True,
             check=True
         )
-        print(f"Successfully captured frame to {output_file}")
+        log(f"Successfully captured frame to {output_file}")
+        notify_capture(f"Frame captured: {camera_name} → {output_file}")
     except subprocess.CalledProcessError as e:
-        print(f"Error capturing frame from {camera_name}: {e}")
+        msg = f"Error capturing frame from {camera_name}: {e}"
+        log(msg)
+        notify_error(msg)
 
 
-def create_timelapse(camera_name, framerate=10):
+def create_timelapse(camera_name, framerate=5):
     """
     Create a timelapse video from captured images for a specific camera.
     :param camera_name: Name of the camera to create timelapse for
@@ -58,41 +96,57 @@ def create_timelapse(camera_name, framerate=10):
     # Validate camera name
     valid_cameras = [cam["name"] for cam in config.cameras]
     if camera_name not in valid_cameras:
-        print(f"Error: Camera '{camera_name}' not found in configuration.")
-        print(f"Available cameras: {', '.join(valid_cameras)}")
+        msg = f"Error: Camera '{camera_name}' not found in configuration. Available: {', '.join(valid_cameras)}"
+        log(msg)
+        notify_error(msg)
         return False
-    
+
     camera_dir = f"{base_images_directory}/{camera_name}"
-    
+
     # Check if camera directory exists and has images
     if not os.path.exists(camera_dir):
-        print(f"Error: No images found for camera '{camera_name}' at {camera_dir}")
+        msg = f"Error: No images found for camera '{camera_name}' at {camera_dir}"
+        log(msg)
+        notify_error(msg)
         return False
-    
-    image_files = [f for f in os.listdir(camera_dir) if f.endswith('.png')]
+
+    all_files = sorted(f for f in os.listdir(camera_dir) if f.endswith('.png'))
+    image_files = [f for f in all_files if os.path.getsize(f"{camera_dir}/{f}") > 0]
+    skipped = len(all_files) - len(image_files)
+
     if not image_files:
-        print(f"Error: No PNG images found in {camera_dir}")
+        msg = f"Error: No valid PNG images found in {camera_dir}"
+        log(msg)
+        notify_error(msg)
         return False
-    
-    print(f"Found {len(image_files)} images for camera '{camera_name}'")
-    
+
+    log(f"Found {len(image_files)} images for camera '{camera_name}'" +
+        (f" ({skipped} empty files skipped)" if skipped else ""))
+
     # Create output directory if it doesn't exist
     os.makedirs(output_directory, exist_ok=True)
-    
+
     # Generate output filename with timestamp
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
     output_file = f"{output_directory}/{camera_name}_timelapse_{timestamp}.mp4"
-    
-    print(f"Creating timelapse video at {framerate} fps...")
-    
-    # Use ffmpeg to create timelapse from images
+
+    log(f"Creating timelapse video at {framerate} fps...")
+
+    # Use ffmpeg to create timelapse from images via concat list
+    concat_file = None
     try:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            for img in image_files:
+                f.write(f"file '{os.path.abspath(f'{camera_dir}/{img}')}'\n")
+            concat_file = f.name
+
         subprocess.run(
             [
                 "ffmpeg",
-                "-framerate", str(framerate),
-                "-pattern_type", "glob",
-                "-i", f"{camera_dir}/*.png",
+                "-f", "concat",
+                "-safe", "0",
+                "-r", str(framerate),
+                "-i", concat_file,
                 "-c:v", "libx264",
                 "-pix_fmt", "yuv420p",
                 "-y",  # Overwrite output file if it exists
@@ -101,23 +155,25 @@ def create_timelapse(camera_name, framerate=10):
             capture_output=True,
             check=True
         )
-        print(f"Successfully created timelapse: {output_file}")
+        log(f"Successfully created timelapse: {output_file}")
+        notify_timelapse(f"Timelapse created: {camera_name} ({len(image_files)} frames) → {output_file}")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"Error creating timelapse: {e}")
-        print(f"stderr: {e.stderr.decode()}")
+        msg = f"Error creating timelapse for '{camera_name}': {e.stderr.decode()}"
+        log(msg)
+        notify_error(msg)
         return False
+    finally:
+        if concat_file and os.path.exists(concat_file):
+            os.unlink(concat_file)
 
 
 def capture_all_cameras():
     """Capture frames from all configured cameras."""
-    print(f"Taking pictures from all cameras...")
-    
-    # Capture frames from all configured cameras
+    log("Taking pictures from all cameras...")
     for camera in config.cameras:
         capture_camera_frame(camera)
-    
-    print("Capture complete!")
+    log("Capture complete!")
 
 
 def main():
