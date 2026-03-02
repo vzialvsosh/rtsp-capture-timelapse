@@ -49,7 +49,7 @@ def capture_camera_frame(camera):
         print(f"Error capturing frame from {camera_name}: {e}")
 
 
-def create_timelapse(camera_name, framerate=24):
+def create_timelapse(camera_name, framerate=10):
     """
     Create a timelapse video from captured images for a specific camera.
     :param camera_name: Name of the camera to create timelapse for
